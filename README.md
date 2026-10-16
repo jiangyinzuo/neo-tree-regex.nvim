@@ -42,17 +42,36 @@ Neo-tree source，从当前缓冲区提取匹配纯文本或 **Vim 正则表达�
 
 目录按原文顺序排列，重复内容按行号分别显示。`Enter` 跳转，`/` 修改当前 tab 的匹配文字或正则（沿用当前模式），`r` 重新扫描，`q` 关闭目录。使用带参数的 `:NeotreeLiteral` 或 `:NeotreeRegex` 切换匹配模式。原文改变后按 `r` 更新；原文窗口或缓冲区关闭后，在原文重新打开目录。
 
-在 Neo-tree 配置中修改默认正则：
+可以注册多个具名 source，每个 source 独立保存匹配规则、匹配模式和目录状态。调用 `register(name, config)` 后，将返回的模块名放入 Neo-tree 的 `sources`；source selector 和 `:Neotree` 使用注册时的名称。
+
+使用 lazy.nvim 时，在 Neo-tree 的 `opts = function() ... end` 中注册，确保插件依赖已加载：
 
 ```lua
-require("neo-tree").setup({
-  sources = { "filesystem", "buffers", "git_status", "neo-tree-regex" },
-  regex_lines = {
-    pattern = [[^\s*###\s\+\S]],
-    literal = false, -- 改为 true 后 pattern 按纯文本匹配，如 pattern = "###"
-  },
-})
+opts = function()
+  local regex = require("neo-tree-regex")
+  return {
+    sources = {
+      "filesystem", "buffers", "git_status", "neo-tree-regex",
+      regex.register("omp-answer", { pattern = [[^\s*###\s\+\S]] }),
+      regex.register("errors", { pattern = [[\v(ERROR|WARN|Traceback)]] }),
+      regex.register("todos", { pattern = "TODO", literal = true }),
+    },
+    source_selector = {
+      winbar = true,
+      sources = {
+        { source = "filesystem", display_name = "Files" },
+        { source = "omp-answer", display_name = "###" },
+        { source = "errors", display_name = "Errors" },
+        { source = "todos", display_name = "TODO" },
+      },
+    },
+  }
+end,
 ```
+
+例如 `:Neotree omp-answer` 打开回答章节，`:Neotree errors` 打开错误目录。不同规则之间切换时沿用当前浏览的原文，`/` 只修改当前 source 的规则。
+
+`register` 必须在 `require("neo-tree").setup()` 之前调用；`config` 也支持与原 source 相同的 `window` 等选项。通用命令 `:NeotreeRegex`、`:NeotreeLiteral` 使用原来的 `regex_lines` source，保留 `"neo-tree-regex"` 即可继续使用；默认值仍可在 Neo-tree 的 `regex_lines = { pattern = ..., literal = ... }` 中配置。
 
 这是逐行匹配，不解析 Markdown 语义：代码块里满足表达式的行也会列出。
 

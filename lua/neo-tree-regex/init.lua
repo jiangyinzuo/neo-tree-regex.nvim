@@ -24,6 +24,7 @@ local M = {
 		},
 	},
 }
+local source_names = { [M.name] = true }
 
 local function notify(message)
 	vim.notify(message, vim.log.levels.WARN, { title = "Neo-tree regex lines" })
@@ -65,6 +66,11 @@ local function capture_target(state)
 	if vim.bo.filetype ~= "neo-tree" then
 		state.target_bufnr = vim.api.nvim_get_current_buf()
 		state.target_winid = vim.api.nvim_get_current_win()
+	elseif source_names[vim.b.neo_tree_source] then
+		-- A newly selected rule should scan the same original buffer.
+		local current = require("neo-tree.sources.manager").get_state(vim.b.neo_tree_source)
+		state.target_bufnr = current.target_bufnr
+		state.target_winid = current.target_winid
 	end
 end
 
@@ -162,6 +168,33 @@ function M.setup(config)
 			config.window.mappings[key] = "none"
 		end
 	end
+end
+
+-- Call before neo-tree.setup; use the returned module name in its sources list.
+function M.register(name, config)
+	assert(type(name) == "string" and name:match("^[%w_-]+$") and name ~= M.name,
+		"Source name must contain letters, digits, underscores or hyphens and differ from " .. M.name)
+	config = config or {}
+	local defaults = vim.tbl_deep_extend("force", vim.deepcopy(M.default_config), config)
+	assert(type(defaults.pattern) == "string", "pattern must be a string")
+	if not defaults.literal then
+		local ok, err = pcall(vim.regex, defaults.pattern)
+		assert(ok, "Invalid Vim regex: " .. tostring(err))
+	end
+	local module_name = "neo-tree-regex.sources." .. name
+	local source = {
+		name = name,
+		display_name = config.display_name or name,
+		default_config = defaults,
+		components = vim.deepcopy(M.components),
+		commands = vim.deepcopy(M.commands),
+		navigate = M.navigate,
+		setup = M.setup,
+	}
+	source_names[name] = true
+	package.preload[module_name] = function() return source end
+	package.loaded[module_name] = nil
+	return module_name
 end
 
 function M.open(pattern, literal)

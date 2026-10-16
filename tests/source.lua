@@ -19,15 +19,19 @@ require("neo-tree.log").warn = function(...)
 	end
 	warnings[#warnings + 1] = table.concat(parts, " ")
 end
+local source = require("neo-tree-regex")
+local answer_module = source.register("omp-answer", { pattern = [[^\s*###\s\+\S]] })
+local errors_module = source.register("errors", { pattern = [[\v(ERROR|WARN)]] })
+local literal_module = source.register("literal", { pattern = "foo.bar[0]", literal = true })
 require("neo-tree").setup({
-	sources = { "neo-tree-regex" },
+	sources = { "neo-tree-regex", answer_module, errors_module, literal_module },
 	default_source = "regex_lines",
 	enable_git_status = false,
 	enable_diagnostics = false,
 	source_selector = { winbar = false },
 })
 dofile(plugin .. "/plugin/neo-tree-regex.lua")
-local source = require("neo-tree-regex")
+vim.cmd("runtime plugin/neo-tree.lua")
 local manager = require("neo-tree.sources.manager")
 local original_win = vim.api.nvim_get_current_win()
 local buf = vim.api.nvim_get_current_buf()
@@ -60,6 +64,35 @@ source.commands.open(state)
 equal(vim.api.nvim_get_current_win(), original_win)
 equal(vim.api.nvim_win_get_cursor(original_win), { 3, 0 })
 equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), lines)
+
+-- Named rules have independent patterns and inherit the original buffer when switched.
+vim.cmd("Neotree omp-answer")
+local answer_state = manager.get_state("omp-answer")
+equal(answer_state.target_bufnr, buf)
+assert(answer_state.tree:get_node(buf .. ":2"))
+vim.cmd("Neotree errors")
+local errors_state = manager.get_state("errors")
+equal(errors_state.target_bufnr, buf)
+assert(errors_state.tree:get_node(buf .. ":9"))
+equal(errors_state.tree:get_node(buf .. ":2"), nil)
+local named_input
+vim.ui.input = function(_, callback) named_input = callback end
+source.commands.set_pattern(errors_state)
+named_input([[^WARN]])
+equal(errors_state.tree:get_node(buf .. ":9"), nil)
+assert(errors_state.tree:get_node(buf .. ":10"))
+vim.cmd("Neotree literal")
+local literal_state = manager.get_state("literal")
+assert(literal_state.tree:get_node(buf .. ":11"))
+equal(literal_state.tree:get_node(buf .. ":12"), nil)
+vim.cmd("Neotree omp-answer")
+equal(answer_state.pattern, [[^\s*###\s\+\S]])
+equal(answer_state.literal, false)
+require("neo-tree.ui.renderer").focus_node(answer_state, buf .. ":8")
+source.commands.open(answer_state)
+equal(vim.api.nvim_get_current_win(), original_win)
+equal(vim.api.nvim_win_get_cursor(original_win), { 8, 0 })
+equal(errors_state.pattern, [[^WARN]])
 
 -- Literal commands accept punctuation and spaces without regex escaping.
 vim.cmd("NeotreeLiteral foo.bar[0]")
